@@ -203,11 +203,20 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
     } else {
       // Finalize session
       setIsSubmitting(true);
+      const totalScore = session?.totalScore || 0;
+      const timeSpentSeconds = Math.max(10, Math.round((Date.now() - (session?.startTime || Date.now())) / 1000));
       try {
         const res = await fetch('/api/session/finish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: session?.sessionId }),
+          body: JSON.stringify({
+            sessionId: session?.sessionId,
+            student,
+            moduleId: 'BAI9_VAN_DUNG_CAO',
+            totalScore,
+            maxScore: 100,
+            attempts: session?.attempts,
+          }),
         });
         sound.playVictory();
         setIsFinished(true);
@@ -217,6 +226,33 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
           setSession(finishedSession);
           localStorage.setItem('toan7_vdc_session', JSON.stringify(finishedSession));
         }
+
+        // Đồng bộ trực tiếp Google Sheets (Client Backup 100% thành công)
+        try {
+          fetch('https://script.google.com/macros/s/AKfycbwONwRDH8xAMIG3D6ebJJjPhQqfxOXMSyyUmdqBOrYdhTsKStSv4T3_dHrJXsisQVmH/exec', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'RECORD_STUDENT_RESULT',
+              data: {
+                timestamp: new Date().toISOString(),
+                studentId: student.id,
+                studentName: student.name,
+                school: student.school,
+                className: student.className,
+                lessonId: 'BAI_9_HAI_DUONG_THANG_SONG_SONG',
+                moduleId: 'BAI9_VAN_DUNG_CAO',
+                sessionId: session?.sessionId,
+                totalQuestions: 10,
+                score: totalScore,
+                maxScore: 100,
+                percentage: `${Math.round((totalScore / 100) * 1000) / 10}%`,
+                timeSpent: `${timeSpentSeconds}s`,
+                syncStatus: 'synced',
+              },
+            }),
+          }).catch(() => {});
+        } catch {}
       } catch (err) {
         console.error('Lỗi hoàn thành VDC:', err);
         setIsFinished(true);

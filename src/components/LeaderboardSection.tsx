@@ -8,6 +8,9 @@ import { LeaderboardEntry } from '../types.ts';
 import { sound } from '../utils/audio.ts';
 import { Trophy, Medal, Clock, RefreshCw, Sparkles } from 'lucide-react';
 
+const GOOGLE_APPS_SCRIPT_URL =
+  'https://script.google.com/macros/s/AKfycbwONwRDH8xAMIG3D6ebJJjPhQqfxOXMSyyUmdqBOrYdhTsKStSv4T3_dHrJXsisQVmH/exec';
+
 export const LeaderboardSection: React.FC = () => {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -15,18 +18,62 @@ export const LeaderboardSection: React.FC = () => {
 
   const fetchLeaderboard = async (mod: string = selectedModule) => {
     setLoading(true);
+    let loadedEntries: LeaderboardEntry[] = [];
     try {
       const url = mod === 'ALL' ? '/api/leaderboard' : `/api/leaderboard?moduleId=${mod}`;
       const res = await fetch(url);
-      const data = await res.json();
-      if (data.leaderboard) {
-        setEntries(data.leaderboard);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.leaderboard && Array.isArray(data.leaderboard)) {
+          loadedEntries = data.leaderboard;
+        }
       }
     } catch (err) {
-      console.error('Lỗi tải bảng xếp hạng:', err);
-    } finally {
-      setLoading(false);
+      console.warn('Lỗi fetch /api/leaderboard, chuyển sang đồng bộ trực tiếp Google Sheets:', err);
     }
+
+    // Direct Google Apps Script Web App Sync / Fallback
+    try {
+      const gsModParam = mod === 'ALL' ? 'BAI9_DAU_TRUONG_TRI_TUE' : mod;
+      const gsRes = await fetch(`${GOOGLE_APPS_SCRIPT_URL}?moduleId=${gsModParam}`, {
+        redirect: 'follow',
+      });
+      if (gsRes.ok) {
+        const gsData = await gsRes.json();
+        if (gsData.status === 'success' && Array.isArray(gsData.leaderboard)) {
+          const directEntries: LeaderboardEntry[] = gsData.leaderboard.map((item: any) => ({
+            id: item.id || `direct_${Math.random()}`,
+            moduleId: item.moduleId || gsModParam,
+            name: item.name,
+            school: item.school || 'THCS',
+            className: item.className || '7A',
+            avatar: '👨‍🎓',
+            score: Number(item.score) || 0,
+            maxScore: Number(item.maxScore) || 100,
+            percentage: Number(item.percentage) || 0,
+            timeSpentSeconds: Number(item.timeSpentSeconds) || 60,
+            completedAt: String(item.completedAt || ''),
+          }));
+
+          directEntries.forEach((de) => {
+            const exists = loadedEntries.some(
+              (le) => le.name === de.name && le.className === de.className && le.moduleId === de.moduleId
+            );
+            if (!exists) {
+              loadedEntries.push(de);
+            }
+          });
+        }
+      }
+    } catch (gsErr) {
+      console.warn('Direct Google Apps Script fetch skipped:', gsErr);
+    }
+
+    if (loadedEntries.length > 0) {
+      loadedEntries.sort((a, b) => b.score - a.score || a.timeSpentSeconds - b.timeSpentSeconds);
+      setEntries(loadedEntries);
+    }
+    setLoading(false);
   };
 
   useEffect(() => {

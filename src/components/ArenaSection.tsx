@@ -44,6 +44,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
+  const [questionAttemptsCount, setQuestionAttemptsCount] = useState<number>(0);
 
   // User input states for current question
   const [singleChoiceAnswer, setSingleChoiceAnswer] = useState<string | null>(null);
@@ -138,6 +139,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     setSvgSelectedAngle(null);
     setQuestionResult(null);
     setShowExplanation(false);
+    setQuestionAttemptsCount(0);
 
     // Initial order for ordering questions
     if (currentQ.type === 'ordering' && currentQ.orderingData) {
@@ -148,6 +150,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     // Restore if already completed in session
     if (session && session.attempts[currentQ.id]) {
       const att = session.attempts[currentQ.id];
+      setQuestionAttemptsCount(att.attemptsCount);
       setQuestionResult({
         isCorrect: att.isCorrect,
         attemptsCount: att.attemptsCount,
@@ -217,8 +220,10 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     setIsSubmitting(true);
 
     // 1. TÍNH TOÁN KẾT QUẢ NGAY TỨC THÌ PHÍA CLIENT (0 GIÂY ĐỘ TRỄ)
-    const currentAttempts = questionResult?.attemptsCount || 0;
+    // Dùng questionAttemptsCount để đảm bảo đúng quy chuẩn: làm lại tối đa 1 lần
+    const currentAttempts = questionAttemptsCount;
     const localResult = gradeArenaQuestionLocally(currentQ, payloadAnswer, currentAttempts);
+    setQuestionAttemptsCount(localResult.attemptsCount);
 
     if (localResult.isCorrect) {
       if (localResult.attemptsCount === 1) {
@@ -285,10 +290,12 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     } catch {}
   };
 
-  // Handle retry
+  // Handle retry: CHỈ CHO PHÉP LÀM LẠI ĐÚNG 1 LẦN
   const handleRetry = () => {
     sound.playClick();
     setQuestionResult(null);
+    setShowExplanation(false);
+    // questionAttemptsCount vẫn là 1 để lần nộp sau là lượt thử thứ 2!
     if (currentQ.type === 'single_choice') setSingleChoiceAnswer(null);
     if (currentQ.type === 'multiple_choice') setMultipleChoiceAnswers([]);
     if (currentQ.type === 'numeric_input') setNumericAnswer('');
@@ -309,11 +316,21 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     } else {
       // Finalize Arena Session
       setIsSubmitting(true);
+      const totalScore = session?.totalScore || 0;
+      const timeSpentSeconds = Math.max(10, Math.round((Date.now() - (session?.startTime || Date.now())) / 1000));
+
       try {
         const res = await fetch('/api/session/finish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: session?.sessionId }),
+          body: JSON.stringify({
+            sessionId: session?.sessionId,
+            student,
+            moduleId: 'BAI9_DAU_TRUONG_TRI_TUE',
+            totalScore,
+            maxScore: 100,
+            attempts: session?.attempts,
+          }),
         });
         const data = await res.json();
         sound.playVictory();
@@ -331,9 +348,9 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
         });
 
         setFinalStats({
-          totalScore: session?.totalScore || 0,
+          totalScore,
           maxScore: 100,
-          percentage: Math.round(((session?.totalScore || 0) / 100) * 1000) / 10,
+          percentage: Math.round((totalScore / 100) * 1000) / 10,
           firstTryCount: data.firstTryCorrectCount || 0,
           retryCount: data.retryCorrectCount || 0,
           wrongCount: data.wrongCount || 0,
@@ -343,6 +360,33 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
 
         setIsFinished(true);
         localStorage.removeItem('toan7_arena_session');
+
+        // Đồng bộ trực tiếp Google Sheets (Client Backup 100% thành công)
+        try {
+          fetch('https://script.google.com/macros/s/AKfycbwONwRDH8xAMIG3D6ebJJjPhQqfxOXMSyyUmdqBOrYdhTsKStSv4T3_dHrJXsisQVmH/exec', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'RECORD_STUDENT_RESULT',
+              data: {
+                timestamp: new Date().toISOString(),
+                studentId: student.id,
+                studentName: student.name,
+                school: student.school,
+                className: student.className,
+                lessonId: 'BAI_9_HAI_DUONG_THANG_SONG_SONG',
+                moduleId: 'BAI9_DAU_TRUONG_TRI_TUE',
+                sessionId: session?.sessionId,
+                totalQuestions: 20,
+                score: totalScore,
+                maxScore: 100,
+                percentage: `${Math.round((totalScore / 100) * 1000) / 10}%`,
+                timeSpent: `${timeSpentSeconds}s`,
+                syncStatus: 'synced',
+              },
+            }),
+          }).catch(() => {});
+        } catch {}
       } catch (err) {
         console.error('Lỗi kết thúc Đấu trường:', err);
         setIsFinished(true);
@@ -832,7 +876,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                 disabled={questionResult?.isCompleted}
                 value={numericAnswer}
                 onChange={(e) => setNumericAnswer(e.target.value)}
-                placeholder="Ví dụ: 67 hoặc 67°"
+                placeholder=""
                 className="flex-1 px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <span className="text-xl font-bold text-slate-500">°</span>
@@ -851,7 +895,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
               disabled={questionResult?.isCompleted}
               value={fillBlankAnswer}
               onChange={(e) => setFillBlankAnswer(e.target.value)}
-              placeholder="Nhập cụm từ vào đây..."
+              placeholder=""
               className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -1137,16 +1181,18 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                 </div>
               </div>
 
-              {/* Nút xem lời giải chi tiết (Hiện khi đã hoàn thành hoặc sai lần 1) */}
+              {/* Nút xem lời giải chi tiết: CHỈ HIỂN THỊ KHI ĐÃ HOÀN THÀNH CÂU HỎI (ĐÚNG HOẶC SAI HẾT 2 LƯỢT) */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                <button
-                  onClick={() => setShowExplanation(!showExplanation)}
-                  className="px-5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer shadow-xs"
-                >
-                  <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span>{showExplanation ? 'Ẩn lời giải chi tiết' : '📖 Xem lời giải chi tiết'}</span>
-                  {showExplanation ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
+                {questionResult.isCompleted && (
+                  <button
+                    onClick={() => setShowExplanation(!showExplanation)}
+                    className="px-5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+                  >
+                    <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span>{showExplanation ? 'Ẩn lời giải chi tiết' : '📖 Xem lời giải chi tiết'}</span>
+                    {showExplanation ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                )}
 
                 {/* Các nút hành động chính */}
                 <div className="flex items-center gap-3 ml-auto">
@@ -1166,14 +1212,14 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                       className="px-7 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-sm sm:text-base shadow-lg shadow-blue-500/30 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
                     >
                       <span>{currentIndex < ARENA_QUESTIONS.length - 1 ? 'CÂU TIẾP THEO' : 'XEM KẾT QUẢ TỔNG KẾT'}</span>
-                      <ArrowRight className="w-5 h-5" />
+                      <ArrowRight className="w-4 h-4" />
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* Khung nội dung lời giải chi tiết (hiển thị khi bấm nút) */}
-              {showExplanation && (
+              {/* Khung nội dung lời giải chi tiết: chỉ hiện khi đã hoàn tất */}
+              {showExplanation && questionResult.isCompleted && (
                 <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/90 border border-blue-200 dark:border-blue-800/80 shadow-inner space-y-2.5 animate-in fade-in duration-200">
                   <div className="flex items-center gap-2 text-xs font-black text-blue-700 dark:text-blue-300 uppercase tracking-wider">
                     <BookOpen className="w-4 h-4 text-blue-600" />

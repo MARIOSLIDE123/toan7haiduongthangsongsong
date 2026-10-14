@@ -594,8 +594,9 @@ app.post('/api/session/finish', async (req: Request, res: Response) => {
     try {
       const response = await fetch(googleSheetsUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(sheetsPayload),
+        redirect: 'follow',
       });
       if (response.ok) {
         sheetSyncStatus = 'synced';
@@ -675,14 +676,15 @@ app.post('/api/session/finish', async (req: Request, res: Response) => {
 app.get('/api/leaderboard', async (req: Request, res: Response) => {
   const { moduleId } = req.query;
 
-  // Nếu đã kết nối Google Sheets, thử fetch dữ liệu bảng xếp hạng mới nhất từ Web App (timeout 2s)
+  // Nếu đã kết nối Google Sheets, thử fetch dữ liệu bảng xếp hạng mới nhất từ Web App (timeout 6s)
   if (googleSheetsUrl && googleSheetsUrl.startsWith('https://script.google.com/')) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
-      const queryParam = moduleId && typeof moduleId === 'string' ? `&moduleId=${moduleId}` : '';
-      const gsRes = await fetch(`${googleSheetsUrl}?action=getLeaderboard${queryParam}`, {
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const queryParam = moduleId && moduleId !== 'ALL' ? `?moduleId=${moduleId}` : '';
+      const gsRes = await fetch(`${googleSheetsUrl}${queryParam}`, {
         signal: controller.signal,
+        redirect: 'follow',
       });
       clearTimeout(timeoutId);
 
@@ -697,7 +699,7 @@ app.get('/api/leaderboard', async (req: Request, res: Response) => {
             if (!exists) {
               leaderboard.push({
                 id: remoteItem.id || 'lead_gs_' + Math.random(),
-                moduleId: remoteItem.moduleId || 'BAI9_DAU_TRUONG_TRI_TUE',
+                moduleId: remoteItem.moduleId || (moduleId && moduleId !== 'ALL' ? String(moduleId) as ModuleId : 'BAI9_DAU_TRUONG_TRI_TUE'),
                 name: remoteItem.name,
                 school: remoteItem.school,
                 className: remoteItem.className,
@@ -719,10 +721,10 @@ app.get('/api/leaderboard', async (req: Request, res: Response) => {
   }
 
   let filtered = leaderboard;
-  if (moduleId && typeof moduleId === 'string') {
+  if (moduleId && typeof moduleId === 'string' && moduleId !== 'ALL') {
     filtered = leaderboard.filter((item) => item.moduleId === moduleId);
   }
-  res.json({ leaderboard: filtered.slice(0, 30) });
+  res.json({ leaderboard: filtered.slice(0, 50) });
 });
 
 // 6. GET & POST /api/sheets/config
