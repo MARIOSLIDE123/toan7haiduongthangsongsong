@@ -899,21 +899,27 @@ app.get('/api/test/run', (_req: Request, res: Response) => {
 });
 
 // Integrate Vite in dev or serve static in prod
-const isProd = process.env.NODE_ENV === 'production';
-if (!isProd) {
+const isVercel = Boolean(process.env.VERCEL);
+const isProd = process.env.NODE_ENV === 'production' || isVercel;
+
+if (!isProd && !isVercel) {
   const vite = await createViteServer({
     server: { middlewareMode: true },
     appType: 'spa',
   });
   app.use(vite.middlewares);
-} else {
+} else if (!isVercel) {
   app.use(express.static(path.resolve(__dirname, 'dist')));
   app.get('*', (_req: Request, res: Response) => {
     res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
   });
 }
 
-const PORT = 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server Toán 7 Bài 9 đang chạy trên cổng ${PORT}`);
-});
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+if (!isVercel) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server Toán 7 Bài 9 đang chạy trên cổng ${PORT}`);
+  });
+}
+
+export default app;
