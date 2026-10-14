@@ -22,6 +22,9 @@ import {
   Award,
   Eye,
   Check,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 interface AdvancedSectionProps {
@@ -40,6 +43,7 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   const [reviewMode, setReviewMode] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
 
   // Result state for current question
   const [currentResult, setCurrentResult] = useState<{
@@ -519,7 +523,7 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
                       >
                         {optLetter}
                       </span>
-                      <MathText text={opt.text} className="text-base sm:text-lg leading-snug" />
+                      <MathText text={opt.text.replace(/^[A-D]\.\s*/, '')} className="text-base sm:text-lg leading-relaxed" />
                     </div>
 
                     <div className="shrink-0 ml-2">
@@ -562,7 +566,7 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
                   <Sparkles className="w-5 h-5" />
                 </button>
               ) : (
-                <div className="space-y-5">
+                <div className="space-y-4">
                   {/* Feedback box */}
                   <div
                     className={`p-5 sm:p-6 rounded-2xl border ${
@@ -573,38 +577,57 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
                   >
                     <div className="flex items-start gap-3.5">
                       {currentResult?.isCorrect ? (
-                        <CheckCircle2 className="w-7 h-7 text-emerald-600 shrink-0 mt-0.5" />
+                        <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                          <CheckCircle2 className="w-6 h-6" />
+                        </div>
                       ) : (
-                        <XCircle className="w-7 h-7 text-rose-600 shrink-0 mt-0.5" />
+                        <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                          <XCircle className="w-6 h-6" />
+                        </div>
                       )}
 
-                      <div className="space-y-3 flex-1">
+                      <div className="space-y-1.5 flex-1">
                         <div className="font-black text-base sm:text-lg">
                           {currentResult?.isCorrect
-                            ? `Xuất sắc, ${student.name}! Em đã vận dụng chính xác dấu hiệu nhận biết hai đường thẳng song song (+10 điểm).`
-                            : `Chưa chính xác rồi, ${student.name}. Em nhận 0 điểm cho câu này (Vận dụng cao không có lượt làm lại).`}
+                            ? `🎉 Xuất sắc, ${student.name}! Em đã vận dụng chính xác dấu hiệu nhận biết hai đường thẳng song song (+10 điểm).`
+                            : `❌ Chưa chính xác rồi, ${student.name}. Em nhận 0 điểm cho câu này (Vận dụng cao không có lượt làm lại).`}
                         </div>
-
-                        {currentResult?.explanation && (
-                          <div className="mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-700/70 space-y-2.5 text-xs sm:text-sm text-slate-800 dark:text-slate-300">
-                            <p className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base">
-                              <MathText text={currentResult.explanation.summary} />
-                            </p>
-                            <div className="space-y-1.5 pl-3 border-l-2 border-amber-500/60 dark:border-amber-400/60">
-                              {currentResult.explanation.steps.map((st, i) => (
-                                <p key={i} className="leading-relaxed">
-                                  <MathText text={st} />
-                                </p>
-                              ))}
-                            </div>
-                            <p className="font-bold text-blue-600 dark:text-blue-400 pt-1">
-                              <MathText text={currentResult.explanation.conclusion} />
-                            </p>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
+
+                  {/* Nút xem lời giải chi tiết */}
+                  {currentResult?.explanation && (
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => setShowExplanation(!showExplanation)}
+                        className="px-5 py-2.5 rounded-xl bg-amber-100/70 hover:bg-amber-200/70 dark:bg-amber-950/80 dark:hover:bg-amber-900 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+                      >
+                        <BookOpen className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        <span>{showExplanation ? 'Ẩn lời giải chi tiết' : '📖 Xem lời giải chi tiết'}</span>
+                        {showExplanation ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Chi tiết lời giải khi bấm xem */}
+                  {showExplanation && currentResult?.explanation && (
+                    <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/90 border border-amber-200 dark:border-amber-800/70 shadow-inner space-y-3 animate-in fade-in duration-200 text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                      <p className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base">
+                        <MathText text={currentResult.explanation.summary} />
+                      </p>
+                      <div className="space-y-1.5 pl-3 border-l-2 border-amber-500/60 dark:border-amber-400/60">
+                        {currentResult.explanation.steps.map((st, i) => (
+                          <p key={i} className="leading-relaxed">
+                            <MathText text={st} />
+                          </p>
+                        ))}
+                      </div>
+                      <p className="font-bold text-blue-600 dark:text-blue-400 pt-1">
+                        <MathText text={currentResult.explanation.conclusion} />
+                      </p>
+                    </div>
+                  )}
 
                   {/* Navigation button */}
                   <div className="flex items-center justify-between gap-3">

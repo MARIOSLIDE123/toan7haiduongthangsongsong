@@ -18,6 +18,9 @@ import {
   Sparkles,
   Trophy,
   Share2,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 interface PracticeSectionProps {
@@ -40,6 +43,7 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
   const [isQuizComplete, setIsQuizComplete] = useState(false);
   const [finalSummary, setFinalSummary] = useState<{
     score: number;
@@ -384,7 +388,7 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
                       {letter}
                     </span>
                     <span className="text-sm md:text-base leading-relaxed pt-0.5">
-                      <MathText text={opt.text} />
+                      <MathText text={opt.text.replace(/^[A-D]\.\s*/, '')} />
                     </span>
                   </div>
 
@@ -420,7 +424,7 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
                 className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:cursor-not-allowed text-white font-semibold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isSubmitting ? (
-                  <span>Đang chấm điểm phía máy chủ...</span>
+                  <span>Đang chấm điểm...</span>
                 ) : questionAttempts?.attemptsCount === 1 ? (
                   <>
                     <RotateCcw className="w-4 h-4" />
@@ -436,7 +440,7 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
             </div>
           ) : (
             /* Completed Question Card with Explanation */
-            <div className="pt-2 space-y-4 animate-in fade-in duration-200">
+            <div className="pt-2 space-y-3 animate-in fade-in duration-200">
               <div
                 className={`p-3.5 rounded-xl border flex items-center justify-between ${
                   questionAttempts.isCorrect
@@ -465,26 +469,38 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
                 </span>
               </div>
 
+              {/* Nút xem lời giải chi tiết */}
+              <button
+                onClick={() => setShowExplanation(!showExplanation)}
+                className="w-full py-2.5 px-3 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
+              >
+                <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span>{showExplanation ? 'Ẩn lời giải chi tiết' : '📖 Xem lời giải chi tiết'}</span>
+                {showExplanation ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+
               {/* Explanation Steps */}
-              <div className="bg-slate-50 dark:bg-slate-800/80 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2 text-xs md:text-sm">
-                <p className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-amber-500" />
-                  Lời giải chi tiết:
-                </p>
-                <p className="text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
-                  <MathText text={currentQ.explanation.summary} />
-                </p>
-                <ul className="space-y-1 text-slate-600 dark:text-slate-400 pl-4 list-disc">
-                  {currentQ.explanation.steps.map((st, i) => (
-                    <li key={i}>
-                      <MathText text={st} />
-                    </li>
-                  ))}
-                </ul>
-                <div className="pt-2 text-xs text-blue-700 dark:text-blue-300 border-t border-slate-200 dark:border-slate-700">
-                  <b>Định lý áp dụng:</b> <MathText text={currentQ.explanation.geometricRule} />
+              {showExplanation && (
+                <div className="bg-slate-50 dark:bg-slate-800/80 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2 text-xs md:text-sm animate-in fade-in duration-200">
+                  <p className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                    Lời giải chi tiết:
+                  </p>
+                  <p className="text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
+                    <MathText text={currentQ.explanation.summary} />
+                  </p>
+                  <ul className="space-y-1 text-slate-600 dark:text-slate-400 pl-4 list-disc">
+                    {currentQ.explanation.steps.map((st, i) => (
+                      <li key={i}>
+                        <MathText text={st} />
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="pt-2 text-xs text-blue-700 dark:text-blue-300 border-t border-slate-200 dark:border-slate-700">
+                    <b>Định lý áp dụng:</b> <MathText text={currentQ.explanation.geometricRule} />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Next Question Button */}
               <button

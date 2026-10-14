@@ -28,6 +28,8 @@ import {
   MoveDown,
   Check,
   Flame,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 interface ArenaSectionProps {
@@ -41,6 +43,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
 
   // User input states for current question
   const [singleChoiceAnswer, setSingleChoiceAnswer] = useState<string | null>(null);
@@ -134,6 +137,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     setTrueFalseAnswers({});
     setSvgSelectedAngle(null);
     setQuestionResult(null);
+    setShowExplanation(false);
 
     // Initial order for ordering questions
     if (currentQ.type === 'ordering' && currentQ.orderingData) {
@@ -162,9 +166,22 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     setCurrentIndex(0);
   };
 
+  // Check if student has entered/selected an answer
+  const isAnswerProvided = (): boolean => {
+    if (currentQ.type === 'single_choice') return Boolean(singleChoiceAnswer);
+    if (currentQ.type === 'multiple_choice') return multipleChoiceAnswers.length > 0;
+    if (currentQ.type === 'numeric_input') return Boolean(numericAnswer.trim());
+    if (currentQ.type === 'fill_blank') return Boolean(fillBlankAnswer.trim());
+    if (currentQ.type === 'matching') return Object.keys(matchingPairs).length >= (currentQ.matchingData?.colA.length || 0);
+    if (currentQ.type === 'true_false') return Object.keys(trueFalseAnswers).length >= (currentQ.trueFalseData?.statements.length || 0);
+    if (currentQ.type === 'ordering') return true;
+    if (currentQ.type === 'svg_angle_click') return Boolean(svgSelectedAngle);
+    return false;
+  };
+
   // Submit answer for grading
   const handleSubmit = async () => {
-    if (!session || isSubmitting || questionResult?.isCompleted) return;
+    if (isSubmitting || questionResult?.isCompleted) return;
 
     let payloadAnswer: any = null;
 
@@ -220,8 +237,19 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     });
 
     // 2. CẬP NHẬT SESSION VÀ BỘ NHỚ LOCALSTORAGE NGAY LẬP TỨC
-    const currentScore = session?.totalScore || 0;
-    const updatedAttempts = { ...(session?.attempts || {}) };
+    const activeSession: SessionData = session || {
+      sessionId: 'arena_' + Date.now(),
+      student,
+      moduleId: 'BAI9_DAU_TRUONG_TRI_TUE',
+      startTime: Date.now(),
+      maxScore: 100,
+      attempts: {},
+      totalScore: 0,
+      isFinished: false,
+    };
+
+    const currentScore = activeSession.totalScore || 0;
+    const updatedAttempts = { ...(activeSession.attempts || {}) };
     updatedAttempts[currentQ.id] = {
       questionId: currentQ.id,
       attemptsCount: localResult.attemptsCount,
@@ -233,16 +261,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     };
 
     const updatedSession: SessionData = {
-      ...(session || {
-        sessionId: 'arena_' + Date.now(),
-        student,
-        moduleId: 'BAI9_DAU_TRUONG_TRI_TUE',
-        startTime: Date.now(),
-        maxScore: 100,
-        attempts: {},
-        totalScore: 0,
-        isFinished: false,
-      }),
+      ...activeSession,
       totalScore: currentScore + localResult.earnedScore,
       attempts: updatedAttempts,
     };
@@ -665,6 +684,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                 const isSelected = singleChoiceAnswer === opt.id;
                 const isLocked = Boolean(questionResult?.isCompleted);
                 const isCorrectOption = opt.id === currentQ.correctSingleOption;
+                const cleanText = opt.text.replace(/^[A-F]\.\s*/, '');
 
                 let buttonStyle =
                   'bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-2xs';
@@ -711,7 +731,7 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                       >
                         {opt.id}
                       </span>
-                      <MathText text={opt.text} className="text-base sm:text-lg leading-snug" />
+                      <MathText text={cleanText} className="text-base sm:text-lg leading-relaxed" />
                     </div>
 
                     <div className="shrink-0 ml-2">
@@ -731,20 +751,6 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                 );
               })}
             </div>
-
-            {/* Nút xác nhận nhanh cho single_choice */}
-            {!questionResult?.isCompleted && (
-              <div className="pt-2">
-                <button
-                  onClick={handleSubmit}
-                  disabled={!singleChoiceAnswer || isSubmitting}
-                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-base shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-40 active:scale-95"
-                >
-                  <span>{questionResult?.canRetry ? 'XÁC NHẬN LÀM LẠI (2.5đ)' : 'XÁC NHẬN CÂU TRẢ LỜI (5đ)'}</span>
-                  <Sparkles className="w-5 h-5" />
-                </button>
-              </div>
-            )}
           </div>
         )}
 
@@ -752,13 +758,14 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
         {currentQ.type === 'multiple_choice' && currentQ.options && (
           <div className="space-y-4">
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium italic">
-              👉 Em hãy tích chọn tất cả các phương án đúng rồi bấm "Xác nhận":
+              👉 Em hãy tích chọn tất cả các phương án đúng rồi bấm "Xác nhận câu trả lời":
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {currentQ.options.map((opt) => {
                 const isSelected = multipleChoiceAnswers.includes(opt.id);
                 const isLocked = Boolean(questionResult?.isCompleted);
                 const isShouldBeSelected = currentQ.correctMultipleOptions?.includes(opt.id);
+                const cleanText = opt.text.replace(/^[A-F]\.\s*/, '');
 
                 let btnStyle =
                   'bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200';
@@ -805,25 +812,11 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                     >
                       {((isLocked && isShouldBeSelected) || isSelected) && <Check className="w-4 h-4 stroke-[3]" />}
                     </div>
-                    <MathText text={opt.text} className="text-base sm:text-lg" />
+                    <MathText text={cleanText} className="text-base sm:text-lg" />
                   </button>
                 );
               })}
             </div>
-
-            {/* Nút xác nhận nhanh cho multiple_choice */}
-            {!questionResult?.isCompleted && (
-              <div className="pt-2">
-                <button
-                  onClick={handleSubmit}
-                  disabled={multipleChoiceAnswers.length === 0 || isSubmitting}
-                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-base shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-40 active:scale-95"
-                >
-                  <span>{questionResult?.canRetry ? 'XÁC NHẬN LÀM LẠI (2.5đ)' : 'XÁC NHẬN CÂU TRẢ LỜI (5đ)'}</span>
-                  <Sparkles className="w-5 h-5" />
-                </button>
-              </div>
-            )}
           </div>
         )}
 
@@ -1071,24 +1064,39 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
         {/* ========================================================
             SUBMIT / RETRY / NEXT ACTION BAR
         ======================================================== */}
-        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4">
-          {!questionResult?.isCompleted && (
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-sm shadow-md shadow-blue-500/20 transition-all flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
-            >
-              <span>{questionResult?.canRetry ? 'NỘP BÀI LÀM LẠI (2.5đ)' : 'XÁC NHẬN CÂU TRẢ LỜI'}</span>
-              <Sparkles className="w-4 h-4" />
-            </button>
+        {/* ========================================================
+            SUBMIT / RETRY / NEXT ACTION BAR
+        ======================================================== */}
+        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-4">
+          {!questionResult?.isCompleted && !questionResult?.canRetry && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <button
+                onClick={handleSubmit}
+                disabled={!isAnswerProvided() || isSubmitting}
+                className={`w-full sm:w-auto px-8 py-3.5 rounded-2xl font-black text-base shadow-lg transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-95 ${
+                  isAnswerProvided() && !isSubmitting
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/30 ring-2 ring-blue-400/30'
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+                }`}
+              >
+                <span>XÁC NHẬN CÂU TRẢ LỜI (5đ)</span>
+                <Sparkles className="w-5 h-5" />
+              </button>
+
+              {!isAnswerProvided() && (
+                <span className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 italic font-medium">
+                  👉 Em hãy chọn hoặc nhập câu trả lời ở trên trước khi bấm xác nhận
+                </span>
+              )}
+            </div>
           )}
 
           {/* Feedback & Navigation when finished or retry */}
           {questionResult && (
-            <div className="w-full space-y-4">
+            <div className="w-full space-y-4 animate-in fade-in duration-300">
               {/* Feedback Alert Box */}
               <div
-                className={`p-4 rounded-2xl border ${
+                className={`p-4 sm:p-5 rounded-2xl border ${
                   questionResult.isCorrect
                     ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
                     : questionResult.canRetry
@@ -1096,62 +1104,86 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                     : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
                 }`}
               >
-                <div className="flex items-start gap-3">
+                <div className="flex items-start gap-3.5">
                   {questionResult.isCorrect ? (
-                    <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
                   ) : questionResult.canRetry ? (
-                    <HelpCircle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                      <HelpCircle className="w-6 h-6" />
+                    </div>
                   ) : (
-                    <XCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                      <XCircle className="w-6 h-6" />
+                    </div>
                   )}
 
-                  <div className="space-y-1">
-                    <div className="font-black text-sm sm:text-base">
+                  <div className="space-y-1.5 flex-1">
+                    <div className="font-black text-base sm:text-lg">
                       {questionResult.isCorrect
-                        ? `Xuất sắc, ${student.name}! Em nhận được +${questionResult.earnedScore} điểm.`
+                        ? `🎉 Chính xác, ${student.name}! Em nhận được +${questionResult.earnedScore} điểm.`
                         : questionResult.canRetry
-                        ? `Chưa chính xác rồi, ${student.name}. Em còn 1 cơ hội làm lại để nhận 2,5 điểm!`
-                        : `Chưa đúng, ${student.name}. Em nhận 0 điểm cho câu này. Hãy xem kỹ lời giải nhé!`}
+                        ? `⚠️ Chưa chính xác rồi, ${student.name}. Em còn 1 cơ hội làm lại để nhận 2,5 điểm!`
+                        : `❌ Rất tiếc, ${student.name}. Em nhận 0 điểm cho câu này. Hãy xem kỹ lời giải nhé!`}
                     </div>
 
                     {questionResult.hint && questionResult.canRetry && (
-                      <p className="text-xs sm:text-sm font-medium text-amber-800 dark:text-amber-300">
+                      <p className="text-xs sm:text-sm font-semibold text-amber-900 dark:text-amber-200 bg-amber-100/70 dark:bg-amber-900/40 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800">
                         💡 <strong>Gợi ý:</strong> <MathText text={questionResult.hint} />
                       </p>
-                    )}
-
-                    {questionResult.explanation && (
-                      <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700/60 text-xs sm:text-sm text-slate-700 dark:text-slate-300 whitespace-pre-line leading-relaxed">
-                        <strong className="text-slate-900 dark:text-white font-bold">Lời giải chi tiết:</strong>{' '}
-                        <MathText text={questionResult.explanation} />
-                      </div>
                     )}
                   </div>
                 </div>
               </div>
 
-              {/* Action buttons after attempt */}
-              <div className="flex items-center justify-end gap-3">
-                {questionResult.canRetry && !questionResult.isCompleted && (
-                  <button
-                    onClick={handleRetry}
-                    className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer shadow-sm"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>LÀM LẠI LẦN 2</span>
-                  </button>
-                )}
+              {/* Nút xem lời giải chi tiết (Hiện khi đã hoàn thành hoặc sai lần 1) */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <button
+                  onClick={() => setShowExplanation(!showExplanation)}
+                  className="px-5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+                >
+                  <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span>{showExplanation ? 'Ẩn lời giải chi tiết' : '📖 Xem lời giải chi tiết'}</span>
+                  {showExplanation ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
 
-                {questionResult.isCompleted && (
-                  <button
-                    onClick={handleNext}
-                    className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all flex items-center gap-2 cursor-pointer"
-                  >
-                    <span>{currentIndex < ARENA_QUESTIONS.length - 1 ? 'CÂU TIẾP THEO' : 'XEM KẾT QUẢ TỔNG KẾT'}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                )}
+                {/* Các nút hành động chính */}
+                <div className="flex items-center gap-3 ml-auto">
+                  {questionResult.canRetry && !questionResult.isCompleted && (
+                    <button
+                      onClick={handleRetry}
+                      className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-sm transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/25 active:scale-95"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>LÀM LẠI CÂU NÀY (2.5đ)</span>
+                    </button>
+                  )}
+
+                  {questionResult.isCompleted && (
+                    <button
+                      onClick={handleNext}
+                      className="px-7 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-sm sm:text-base shadow-lg shadow-blue-500/30 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                    >
+                      <span>{currentIndex < ARENA_QUESTIONS.length - 1 ? 'CÂU TIẾP THEO' : 'XEM KẾT QUẢ TỔNG KẾT'}</span>
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Khung nội dung lời giải chi tiết (hiển thị khi bấm nút) */}
+              {showExplanation && (
+                <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/90 border border-blue-200 dark:border-blue-800/80 shadow-inner space-y-2.5 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2 text-xs font-black text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+                    <BookOpen className="w-4 h-4 text-blue-600" />
+                    <span>Lời giải chi tiết từng bước:</span>
+                  </div>
+                  <div className="text-sm sm:text-base text-slate-800 dark:text-slate-200 whitespace-pre-line leading-relaxed pl-1">
+                    <MathText text={questionResult.explanation || currentQ.explanation} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

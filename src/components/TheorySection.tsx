@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { GeometryCanvas } from './GeometryCanvas.tsx';
 import { AngleName } from '../types.ts';
 import { sound } from '../utils/audio.ts';
+import { MathText } from './MathText.tsx';
 import { BookOpen, CheckCircle, Info, Layers, Eye } from 'lucide-react';
 
 export const TheorySection: React.FC = () => {
@@ -184,7 +185,7 @@ export const TheorySection: React.FC = () => {
               {currentTab.rules.map((rule, idx) => (
                 <li key={idx} className="flex items-start gap-2 text-xs md:text-sm text-slate-700 dark:text-slate-300">
                   <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                  <span>{rule}</span>
+                  <MathText text={rule} />
                 </li>
               ))}
             </ul>
@@ -195,9 +196,9 @@ export const TheorySection: React.FC = () => {
               <Info className="w-4 h-4" />
               Công thức hình học
             </div>
-            <p className="font-mono text-sm md:text-base font-bold text-blue-900 dark:text-blue-200">
-              {currentTab.mathProperty}
-            </p>
+            <div className="font-mono text-sm md:text-base font-bold text-blue-900 dark:text-blue-200">
+              <MathText text={currentTab.mathProperty} />
+            </div>
           </div>
         </div>
       </div>
