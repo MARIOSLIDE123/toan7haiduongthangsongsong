@@ -7,6 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { AdvancedQuestion, StudentProfile, SessionData } from '../types.ts';
 import { ADVANCED_QUESTIONS } from '../data/advancedQuestions.ts';
 import { GeometryCanvas } from './GeometryCanvas.tsx';
+import { MathText } from './MathText.tsx';
+import { gradeAdvancedQuestionLocally } from '../utils/localGrading.ts';
 import { sound } from '../utils/audio.ts';
 import {
   Sparkles,
@@ -124,60 +126,69 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
 
   // Submit Answer - STRICT NO RETRY: Lock immediately!
   const handleConfirmAnswer = async () => {
-    if (!session || !selectedOption || isSubmitting || currentResult !== null) return;
+    if (!selectedOption || isSubmitting || currentResult !== null) return;
 
     setIsSubmitting(true);
+
+    // 1. TÍNH TOÁN KẾT QUẢ NGAY TỨC THÌ PHÍA CLIENT (0 GIÂY ĐỘ TRỄ)
+    const localResult = gradeAdvancedQuestionLocally(currentQ, selectedOption);
+
+    if (localResult.isCorrect) {
+      sound.playCorrect();
+    } else {
+      sound.playWrong();
+    }
+
+    setCurrentResult({
+      isCorrect: localResult.isCorrect,
+      earnedScore: localResult.earnedScore,
+      explanation: localResult.explanation,
+    });
+
+    // 2. CẬP NHẬT SESSION VÀ BỘ NHỚ LOCALSTORAGE NGAY LẬP TỨC
+    const currentScore = session?.totalScore || 0;
+    const updatedAttempts = { ...(session?.attempts || {}) };
+    updatedAttempts[currentQ.id] = {
+      questionId: currentQ.id,
+      attemptsCount: 1,
+      isCompleted: true,
+      isCorrect: localResult.isCorrect,
+      earnedScore: localResult.earnedScore,
+      userSelectedOptions: selectedOption,
+      canRetry: false,
+    };
+
+    const updatedSession: SessionData = {
+      ...(session || {
+        sessionId: 'vdc_' + Date.now(),
+        student,
+        moduleId: 'BAI9_VAN_DUNG_CAO',
+        startTime: Date.now(),
+        maxScore: 100,
+        attempts: {},
+        totalScore: 0,
+        isFinished: false,
+      }),
+      totalScore: currentScore + localResult.earnedScore,
+      attempts: updatedAttempts,
+    };
+
+    setSession(updatedSession);
+    localStorage.setItem('toan7_vdc_session', JSON.stringify(updatedSession));
+    setIsSubmitting(false);
+
+    // 3. ĐỒNG BỘ NỀN LÊN MÁY CHỦ (BACKGROUND FETCH)
     try {
-      const res = await fetch('/api/session/submit', {
+      fetch('/api/session/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId: session.sessionId,
+          sessionId: updatedSession.sessionId,
           questionId: currentQ.id,
           selectedOptionId: selectedOption,
         }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        if (data.isCorrect) {
-          sound.playCorrect();
-        } else {
-          sound.playWrong();
-        }
-
-        setCurrentResult({
-          isCorrect: data.isCorrect,
-          earnedScore: data.earnedScore,
-          explanation: data.explanation || currentQ.explanation,
-        });
-
-        // Update local session immediately and lock
-        const updatedAttempts = { ...session.attempts };
-        updatedAttempts[currentQ.id] = {
-          questionId: currentQ.id,
-          attemptsCount: 1,
-          isCompleted: true,
-          isCorrect: data.isCorrect,
-          earnedScore: data.earnedScore,
-          userSelectedOptions: selectedOption,
-          canRetry: false,
-        };
-
-        const updatedSession: SessionData = {
-          ...session,
-          totalScore: data.totalScore,
-          attempts: updatedAttempts,
-        };
-
-        setSession(updatedSession);
-        localStorage.setItem('toan7_vdc_session', JSON.stringify(updatedSession));
-      }
-    } catch (err) {
-      console.error('Lỗi khi xác nhận đáp án VDC:', err);
-    } finally {
-      setIsSubmitting(false);
-    }
+      }).catch(() => {});
+    } catch {}
   };
 
   // Go to next question or finalize
@@ -454,7 +465,7 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
             {/* Prompt */}
             <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60">
               <p className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 dark:text-white leading-relaxed whitespace-pre-line">
-                {currentQ.prompt}
+                <MathText text={currentQ.prompt} />
               </p>
             </div>
 
@@ -474,12 +485,12 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
                 } else if (isQuestionLocked) {
                   if (isCorrectOption) {
                     buttonStyle =
-                      'bg-emerald-50 dark:bg-emerald-950/70 border-emerald-500 text-emerald-950 dark:text-emerald-100 font-bold shadow-sm';
+                      'bg-emerald-50 dark:bg-emerald-950/70 border-emerald-500 text-emerald-950 dark:text-emerald-100 font-bold shadow-sm ring-2 ring-emerald-500/40';
                   } else if (isSelected && !currentResult?.isCorrect) {
                     buttonStyle =
                       'bg-rose-50 dark:bg-rose-950/70 border-rose-500 text-rose-950 dark:text-rose-100 line-through opacity-90';
                   } else {
-                    buttonStyle = 'opacity-50 border-slate-200 dark:border-slate-800';
+                    buttonStyle = 'opacity-40 border-slate-200 dark:border-slate-800';
                   }
                 }
 
@@ -508,7 +519,7 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
                       >
                         {optLetter}
                       </span>
-                      <span className="leading-snug">{opt.text}</span>
+                      <MathText text={opt.text} className="text-base sm:text-lg leading-snug" />
                     </div>
 
                     <div className="shrink-0 ml-2">
@@ -577,15 +588,17 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
                         {currentResult?.explanation && (
                           <div className="mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-700/70 space-y-2.5 text-xs sm:text-sm text-slate-800 dark:text-slate-300">
                             <p className="font-extrabold text-slate-900 dark:text-white text-sm sm:text-base">
-                              {currentResult.explanation.summary}
+                              <MathText text={currentResult.explanation.summary} />
                             </p>
                             <div className="space-y-1.5 pl-3 border-l-2 border-amber-500/60 dark:border-amber-400/60">
                               {currentResult.explanation.steps.map((st, i) => (
-                                <p key={i} className="leading-relaxed">{st}</p>
+                                <p key={i} className="leading-relaxed">
+                                  <MathText text={st} />
+                                </p>
                               ))}
                             </div>
                             <p className="font-bold text-blue-600 dark:text-blue-400 pt-1">
-                              {currentResult.explanation.conclusion}
+                              <MathText text={currentResult.explanation.conclusion} />
                             </p>
                           </div>
                         )}

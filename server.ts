@@ -208,9 +208,30 @@ app.post('/api/session/submit', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Thiếu dữ liệu phiên hoặc câu hỏi' });
   }
 
-  const session = sessions.get(sessionId);
+  let session = sessions.get(sessionId);
   if (!session) {
-    return res.status(404).json({ error: 'Phiên học không tồn tại hoặc đã hết hạn' });
+    // Tự động khôi phục session trên môi trường serverless (như Vercel)
+    let modId: ModuleId = 'BAI9_LUYEN_TAP_SGK';
+    if (questionId.startsWith('arena_')) modId = 'BAI9_DAU_TRUONG_TRI_TUE';
+    else if (questionId.startsWith('vdc_')) modId = 'BAI9_VAN_DUNG_CAO';
+
+    session = {
+      sessionId,
+      student: {
+        id: 'std_auto',
+        name: 'Học sinh',
+        school: 'THCS',
+        className: '7A',
+        avatar: '👨‍🎓',
+      },
+      moduleId: modId,
+      startTime: Date.now(),
+      attempts: {},
+      totalScore: 0,
+      maxScore: modId === 'BAI9_LUYEN_TAP_SGK' ? 120 : 100,
+      isFinished: false,
+    };
+    sessions.set(sessionId, session);
   }
 
   // Check existing attempts for this question to enforce anti-duplication
@@ -475,10 +496,27 @@ app.post('/api/session/submit', (req: Request, res: Response) => {
 
 // 4. POST /api/session/finish
 app.post('/api/session/finish', async (req: Request, res: Response) => {
-  const { sessionId } = req.body;
-  const session = sessions.get(sessionId);
+  const { sessionId, student, moduleId, totalScore, maxScore, attempts } = req.body;
+  let session = sessions.get(sessionId);
   if (!session) {
-    return res.status(404).json({ error: 'Không tìm thấy phiên làm việc' });
+    const modId = moduleId || (sessionId?.includes('arena') ? 'BAI9_DAU_TRUONG_TRI_TUE' : sessionId?.includes('adv') ? 'BAI9_VAN_DUNG_CAO' : 'BAI9_LUYEN_TAP_SGK');
+    session = {
+      sessionId: sessionId || 'sess_' + Date.now(),
+      student: student || {
+        id: 'std_auto',
+        name: 'Học sinh',
+        school: 'THCS',
+        className: '7A',
+        avatar: '👨‍🎓',
+      },
+      moduleId: modId,
+      startTime: Date.now() - 60000,
+      attempts: attempts || {},
+      totalScore: Number(totalScore) || 0,
+      maxScore: Number(maxScore) || (modId === 'BAI9_LUYEN_TAP_SGK' ? 120 : 100),
+      isFinished: false,
+    };
+    sessions.set(session.sessionId, session);
   }
 
   session.isFinished = true;

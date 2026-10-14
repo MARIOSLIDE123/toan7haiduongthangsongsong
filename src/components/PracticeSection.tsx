@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Question, StudentProfile, SessionData, AttemptState } from '../types.ts';
 import { GeometryCanvas } from './GeometryCanvas.tsx';
+import { MathText } from './MathText.tsx';
 import { sound } from '../utils/audio.ts';
 import {
   Award,
@@ -57,65 +58,85 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
   };
 
   const handleSubmitAnswer = async () => {
-    if (!session || !selectedOption || isSubmitting || questionAttempts?.isCompleted) return;
+    if (!selectedOption || isSubmitting || questionAttempts?.isCompleted) return;
 
     setIsSubmitting(true);
+
+    // 1. TÍNH TOÁN KẾT QUẢ NGAY TỨC THÌ PHÍA CLIENT
+    const currentAttempts = questionAttempts?.attemptsCount || 0;
+    const nextAttempts = currentAttempts + 1;
+    const isCorrect = selectedOption === currentQ.correctOptionId;
+    let earnedScore = 0;
+    let canRetry = false;
+    let isCompleted = false;
+
+    if (isCorrect) {
+      isCompleted = true;
+      canRetry = false;
+      earnedScore = nextAttempts === 1 ? 10 : 5;
+      if (nextAttempts === 1) sound.playCorrect();
+      else sound.playRetrySuccess();
+    } else {
+      sound.playWrong();
+      if (nextAttempts === 1) {
+        canRetry = true;
+        isCompleted = false;
+        earnedScore = 0;
+      } else {
+        isCompleted = true;
+        canRetry = false;
+        earnedScore = 0;
+      }
+    }
+
+    const currentTotal = session?.totalScore || 0;
+    const updatedAttempts = { ...(session?.attempts || {}) };
+    updatedAttempts[currentQ.id] = {
+      questionId: currentQ.id,
+      attemptsCount: nextAttempts,
+      isCompleted,
+      isCorrect,
+      earnedScore,
+      userSelectedOptions: [
+        ...(updatedAttempts[currentQ.id]?.userSelectedOptions || []),
+        selectedOption,
+      ],
+      canRetry,
+    };
+
+    const updatedSession: SessionData = {
+      ...(session || {
+        sessionId: 'practice_' + Date.now(),
+        student,
+        moduleId: 'BAI9_LUYEN_TAP_SGK',
+        startTime: Date.now(),
+        maxScore: 120,
+        attempts: {},
+        totalScore: 0,
+        isFinished: false,
+      }),
+      totalScore: currentTotal + earnedScore,
+      attempts: updatedAttempts,
+    };
+
+    onUpdateSession(updatedSession);
+    if (canRetry) {
+      setSelectedOption(null);
+    }
+    setIsSubmitting(false);
+
+    // 2. GỬI NỀN LÊN MÁY CHỦ
     try {
-      const response = await fetch('/api/session/submit', {
+      fetch('/api/session/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId: session.sessionId,
+          sessionId: updatedSession.sessionId,
           questionId: currentQ.id,
           selectedOptionId: selectedOption,
         }),
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        // Sound & feedback based on server evaluation
-        if (data.isCorrect) {
-          if (data.attemptsCount === 1) {
-            sound.playCorrect();
-          } else {
-            sound.playRetrySuccess();
-          }
-        } else {
-          sound.playWrong();
-        }
-
-        // Update session state locally with server authoritative result
-        const updatedAttempts = { ...session.attempts };
-        updatedAttempts[currentQ.id] = {
-          questionId: currentQ.id,
-          attemptsCount: data.attemptsCount,
-          isCompleted: data.isCompleted,
-          isCorrect: data.isCorrect,
-          earnedScore: data.earnedScore,
-          userSelectedOptions: [
-            ...(updatedAttempts[currentQ.id]?.userSelectedOptions || []),
-            selectedOption,
-          ],
-        };
-
-        const updatedSession: SessionData = {
-          ...session,
-          totalScore: data.totalScore,
-          attempts: updatedAttempts,
-        };
-
-        onUpdateSession(updatedSession);
-
-        // If retry needed, clear option so student can pick again
-        if (data.canRetry) {
-          setSelectedOption(null);
-        }
-      }
-    } catch (err) {
-      console.error('Lỗi khi gửi đáp án:', err);
-    } finally {
-      setIsSubmitting(false);
-    }
+      }).catch(() => {});
+    } catch {}
   };
 
   const handleNextQuestion = async () => {
@@ -308,7 +329,7 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
               {currentQ.title}
             </span>
             <h4 className="text-base md:text-lg font-bold text-slate-800 dark:text-slate-100 mt-1 leading-snug">
-              {currentQ.prompt}
+              <MathText text={currentQ.prompt} />
             </h4>
           </div>
 
@@ -332,10 +353,12 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
               if (isCompleted) {
                 if (isCorrectOpt) {
                   optStyle =
-                    'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-500 text-emerald-900 dark:text-emerald-200 font-semibold';
+                    'bg-emerald-50 dark:bg-emerald-950/70 border-emerald-500 text-emerald-950 dark:text-emerald-100 font-bold ring-2 ring-emerald-500/40';
                 } else if (wasChosenByUser && !isCorrectOpt) {
                   optStyle =
-                    'bg-rose-50 dark:bg-rose-950/50 border-rose-400 text-rose-800 dark:text-rose-200 line-through opacity-75';
+                    'bg-rose-50 dark:bg-rose-950/70 border-rose-500 text-rose-950 dark:text-rose-100 line-through opacity-80';
+                } else {
+                  optStyle = 'opacity-40 border-slate-200 dark:border-slate-800';
                 }
               }
 
@@ -344,22 +367,35 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
                   key={opt.id}
                   disabled={isCompleted || isSubmitting}
                   onClick={() => handleSelectOption(opt.id)}
-                  className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-start gap-3 cursor-pointer ${optStyle}`}
+                  className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${optStyle}`}
                 >
-                  <span
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
-                      isSelected && !isCompleted
-                        ? 'bg-blue-600 text-white'
-                        : isCompleted && isCorrectOpt
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600'
-                    }`}
-                  >
-                    {letter}
-                  </span>
-                  <span className="text-sm md:text-base leading-relaxed pt-0.5">
-                    {opt.text}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
+                        isCompleted && isCorrectOpt
+                          ? 'bg-emerald-600 text-white'
+                          : isCompleted && wasChosenByUser && !isCorrectOpt
+                          ? 'bg-rose-600 text-white'
+                          : isSelected && !isCompleted
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600'
+                      }`}
+                    >
+                      {letter}
+                    </span>
+                    <span className="text-sm md:text-base leading-relaxed pt-0.5">
+                      <MathText text={opt.text} />
+                    </span>
+                  </div>
+
+                  <div className="shrink-0">
+                    {isCompleted && isCorrectOpt && (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    )}
+                    {isCompleted && wasChosenByUser && !isCorrectOpt && (
+                      <XCircle className="w-5 h-5 text-rose-600" />
+                    )}
+                  </div>
                 </button>
               );
             })}
@@ -436,15 +472,17 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
                   Lời giải chi tiết:
                 </p>
                 <p className="text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
-                  {currentQ.explanation.summary}
+                  <MathText text={currentQ.explanation.summary} />
                 </p>
                 <ul className="space-y-1 text-slate-600 dark:text-slate-400 pl-4 list-disc">
                   {currentQ.explanation.steps.map((st, i) => (
-                    <li key={i}>{st}</li>
+                    <li key={i}>
+                      <MathText text={st} />
+                    </li>
                   ))}
                 </ul>
                 <div className="pt-2 text-xs text-blue-700 dark:text-blue-300 border-t border-slate-200 dark:border-slate-700">
-                  <b>Định lý áp dụng:</b> {currentQ.explanation.geometricRule}
+                  <b>Định lý áp dụng:</b> <MathText text={currentQ.explanation.geometricRule} />
                 </div>
               </div>
 

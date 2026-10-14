@@ -7,6 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { ArenaQuestion, StudentProfile, SessionData, AngleName } from '../types.ts';
 import { ARENA_QUESTIONS } from '../data/arenaQuestions.ts';
 import { GeometryCanvas } from './GeometryCanvas.tsx';
+import { MathText } from './MathText.tsx';
+import { gradeArenaQuestionLocally } from '../utils/localGrading.ts';
 import { sound } from '../utils/audio.ts';
 import {
   Trophy,
@@ -197,68 +199,71 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
 
     setIsSubmitting(true);
 
+    // 1. TÍNH TOÁN KẾT QUẢ NGAY TỨC THÌ PHÍA CLIENT (0 GIÂY ĐỘ TRỄ)
+    const currentAttempts = questionResult?.attemptsCount || 0;
+    const localResult = gradeArenaQuestionLocally(currentQ, payloadAnswer, currentAttempts);
+
+    if (localResult.isCorrect) {
+      if (localResult.attemptsCount === 1) {
+        sound.playCorrect();
+      } else {
+        sound.playRetrySuccess();
+      }
+    } else {
+      sound.playWrong();
+    }
+
+    setQuestionResult({
+      ...localResult,
+      positiveFeedback: currentQ.positiveFeedback,
+      encouragingFeedback: currentQ.encouragingFeedback,
+    });
+
+    // 2. CẬP NHẬT SESSION VÀ BỘ NHỚ LOCALSTORAGE NGAY LẬP TỨC
+    const currentScore = session?.totalScore || 0;
+    const updatedAttempts = { ...(session?.attempts || {}) };
+    updatedAttempts[currentQ.id] = {
+      questionId: currentQ.id,
+      attemptsCount: localResult.attemptsCount,
+      isCompleted: localResult.isCompleted,
+      isCorrect: localResult.isCorrect,
+      earnedScore: localResult.earnedScore,
+      userSelectedOptions: payloadAnswer,
+      canRetry: localResult.canRetry,
+    };
+
+    const updatedSession: SessionData = {
+      ...(session || {
+        sessionId: 'arena_' + Date.now(),
+        student,
+        moduleId: 'BAI9_DAU_TRUONG_TRI_TUE',
+        startTime: Date.now(),
+        maxScore: 100,
+        attempts: {},
+        totalScore: 0,
+        isFinished: false,
+      }),
+      totalScore: currentScore + localResult.earnedScore,
+      attempts: updatedAttempts,
+    };
+
+    setSession(updatedSession);
+    localStorage.setItem('toan7_arena_session', JSON.stringify(updatedSession));
+    setIsSubmitting(false);
+
+    // 3. ĐỒNG BỘ NỀN LÊN MÁY CHỦ (BACKGROUND FETCH - KHÔNG CHẶN GIAO DIỆN)
     try {
-      const res = await fetch('/api/session/submit', {
+      fetch('/api/session/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId: session.sessionId,
+          sessionId: updatedSession.sessionId,
           questionId: currentQ.id,
           selectedOptionId: typeof payloadAnswer === 'string' ? payloadAnswer : undefined,
           responseData: payloadAnswer,
         }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        if (data.isCorrect) {
-          if (data.attemptsCount === 1) {
-            sound.playCorrect();
-          } else {
-            sound.playRetrySuccess();
-          }
-        } else {
-          sound.playWrong();
-        }
-
-        setQuestionResult({
-          isCorrect: data.isCorrect,
-          attemptsCount: data.attemptsCount,
-          canRetry: data.canRetry,
-          isCompleted: data.isCompleted,
-          earnedScore: data.earnedScore,
-          hint: data.hint,
-          explanation: data.explanation,
-          positiveFeedback: data.positiveFeedback,
-          encouragingFeedback: data.encouragingFeedback,
-        });
-
-        // Update local session
-        const updatedAttempts = { ...session.attempts };
-        updatedAttempts[currentQ.id] = {
-          questionId: currentQ.id,
-          attemptsCount: data.attemptsCount,
-          isCompleted: data.isCompleted,
-          isCorrect: data.isCorrect,
-          earnedScore: data.earnedScore,
-          userSelectedOptions: payloadAnswer,
-          canRetry: data.canRetry,
-        };
-
-        const updatedSession: SessionData = {
-          ...session,
-          totalScore: data.totalScore,
-          attempts: updatedAttempts,
-        };
-
-        setSession(updatedSession);
-        localStorage.setItem('toan7_arena_session', JSON.stringify(updatedSession));
-      }
-    } catch (err) {
-      console.error('Lỗi nộp bài Đấu trường:', err);
-    } finally {
-      setIsSubmitting(false);
-    }
+      }).catch(() => {});
+    } catch {}
   };
 
   // Handle retry
@@ -644,9 +649,9 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
           {/* RIGHT COLUMN: Prompt, Question Interaction Area, Submit & Feedback */}
           <div className={currentQ.diagramConfig ? "lg:col-span-6 xl:col-span-6 space-y-6" : "space-y-6"}>
             {/* Prompt */}
-            <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80">
+            <div className="p-4 sm:p-5 rounded-2xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80">
               <p className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-relaxed whitespace-pre-line">
-                {currentQ.prompt}
+                <MathText text={currentQ.prompt} />
               </p>
             </div>
 
@@ -654,42 +659,124 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
 
         {/* 1. SINGLE CHOICE */}
         {currentQ.type === 'single_choice' && currentQ.options && (
-          <div className="grid grid-cols-1 gap-3">
-            {currentQ.options.map((opt) => {
-              const isSelected = singleChoiceAnswer === opt.id;
-              const isLocked = questionResult?.isCompleted;
-              return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3">
+              {currentQ.options.map((opt) => {
+                const isSelected = singleChoiceAnswer === opt.id;
+                const isLocked = Boolean(questionResult?.isCompleted);
+                const isCorrectOption = opt.id === currentQ.correctSingleOption;
+
+                let buttonStyle =
+                  'bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-2xs';
+
+                if (!isLocked) {
+                  if (isSelected) {
+                    buttonStyle =
+                      'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-900 dark:text-blue-100 ring-2 ring-blue-500/30 shadow-sm';
+                  }
+                } else {
+                  if (isCorrectOption) {
+                    buttonStyle =
+                      'bg-emerald-50 dark:bg-emerald-950/70 border-emerald-500 text-emerald-950 dark:text-emerald-100 font-bold ring-2 ring-emerald-500/40 shadow-sm';
+                  } else if (isSelected && !questionResult?.isCorrect) {
+                    buttonStyle =
+                      'bg-rose-50 dark:bg-rose-950/70 border-rose-500 text-rose-950 dark:text-rose-100 line-through opacity-85';
+                  } else {
+                    buttonStyle = 'opacity-40 border-slate-200 dark:border-slate-800';
+                  }
+                }
+
+                return (
+                  <button
+                    key={opt.id}
+                    disabled={isLocked}
+                    onClick={() => {
+                      if (isLocked) return;
+                      sound.playClick();
+                      setSingleChoiceAnswer(opt.id);
+                    }}
+                    className={`w-full p-4 sm:p-4.5 rounded-2xl text-left font-semibold text-base sm:text-lg border transition-all flex items-center justify-between cursor-pointer group active:scale-98 ${buttonStyle}`}
+                  >
+                    <div className="flex items-center gap-3.5 pr-2">
+                      <span
+                        className={`w-8 h-8 rounded-xl font-black text-sm sm:text-base flex items-center justify-center shrink-0 transition-colors ${
+                          isLocked && isCorrectOption
+                            ? 'bg-emerald-600 text-white'
+                            : isLocked && isSelected && !questionResult?.isCorrect
+                            ? 'bg-rose-600 text-white'
+                            : isSelected
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {opt.id}
+                      </span>
+                      <MathText text={opt.text} className="text-base sm:text-lg leading-snug" />
+                    </div>
+
+                    <div className="shrink-0 ml-2">
+                      {isLocked && isCorrectOption && (
+                        <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
+                      )}
+                      {isLocked && isSelected && !questionResult?.isCorrect && (
+                        <XCircle className="w-6 h-6 text-rose-600 shrink-0" />
+                      )}
+                      {!isLocked && isSelected && (
+                        <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                          <Check className="w-4 h-4 stroke-[3]" />
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Nút xác nhận nhanh cho single_choice */}
+            {!questionResult?.isCompleted && (
+              <div className="pt-2">
                 <button
-                  key={opt.id}
-                  disabled={isLocked}
-                  onClick={() => {
-                    if (isLocked) return;
-                    sound.playClick();
-                    setSingleChoiceAnswer(opt.id);
-                  }}
-                  className={`p-4 rounded-2xl text-left font-medium text-sm sm:text-base border transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-500 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
-                      : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                  } ${isLocked ? 'cursor-default opacity-90' : ''}`}
+                  onClick={handleSubmit}
+                  disabled={!singleChoiceAnswer || isSubmitting}
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-base shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-40 active:scale-95"
                 >
-                  {opt.text}
+                  <span>{questionResult?.canRetry ? 'XÁC NHẬN LÀM LẠI (2.5đ)' : 'XÁC NHẬN CÂU TRẢ LỜI (5đ)'}</span>
+                  <Sparkles className="w-5 h-5" />
                 </button>
-              );
-            })}
+              </div>
+            )}
           </div>
         )}
 
         {/* 2. MULTIPLE CHOICE */}
         {currentQ.type === 'multiple_choice' && currentQ.options && (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-              (Có thể chọn nhiều phương án đúng cùng lúc)
+          <div className="space-y-4">
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium italic">
+              👉 Em hãy tích chọn tất cả các phương án đúng rồi bấm "Xác nhận":
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {currentQ.options.map((opt) => {
                 const isSelected = multipleChoiceAnswers.includes(opt.id);
-                const isLocked = questionResult?.isCompleted;
+                const isLocked = Boolean(questionResult?.isCompleted);
+                const isShouldBeSelected = currentQ.correctMultipleOptions?.includes(opt.id);
+
+                let btnStyle =
+                  'bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/80 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200';
+
+                if (!isLocked) {
+                  if (isSelected) {
+                    btnStyle = 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-900 dark:text-blue-100 ring-2 ring-blue-500/20';
+                  }
+                } else {
+                  if (isShouldBeSelected) {
+                    btnStyle = 'bg-emerald-50 dark:bg-emerald-950/70 border-emerald-500 text-emerald-950 dark:text-emerald-100 font-bold';
+                  } else if (isSelected && !isShouldBeSelected) {
+                    btnStyle = 'bg-rose-50 dark:bg-rose-950/70 border-rose-500 text-rose-950 dark:text-rose-100 line-through opacity-85';
+                  } else {
+                    btnStyle = 'opacity-40 border-slate-200 dark:border-slate-800';
+                  }
+                }
+
                 return (
                   <button
                     key={opt.id}
@@ -703,26 +790,40 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                         setMultipleChoiceAnswers([...multipleChoiceAnswers, opt.id]);
                       }
                     }}
-                    className={`p-4 rounded-2xl text-left font-medium text-sm border transition-all flex items-center gap-3 cursor-pointer ${
-                      isSelected
-                        ? 'bg-blue-50 dark:bg-blue-950/50 border-blue-500 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
-                        : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                    } ${isLocked ? 'cursor-default' : ''}`}
+                    className={`p-4 rounded-2xl text-left font-semibold text-sm sm:text-base border transition-all flex items-center gap-3.5 cursor-pointer ${btnStyle}`}
                   >
                     <div
-                      className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
-                        isSelected
+                      className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-colors shrink-0 ${
+                        isLocked && isShouldBeSelected
+                          ? 'bg-emerald-600 border-emerald-600 text-white'
+                          : isLocked && isSelected && !isShouldBeSelected
+                          ? 'bg-rose-600 border-rose-600 text-white'
+                          : isSelected
                           ? 'bg-blue-600 border-blue-600 text-white'
                           : 'border-slate-300 dark:border-slate-600'
                       }`}
                     >
-                      {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                      {((isLocked && isShouldBeSelected) || isSelected) && <Check className="w-4 h-4 stroke-[3]" />}
                     </div>
-                    <span>{opt.text}</span>
+                    <MathText text={opt.text} className="text-base sm:text-lg" />
                   </button>
                 );
               })}
             </div>
+
+            {/* Nút xác nhận nhanh cho multiple_choice */}
+            {!questionResult?.isCompleted && (
+              <div className="pt-2">
+                <button
+                  onClick={handleSubmit}
+                  disabled={multipleChoiceAnswers.length === 0 || isSubmitting}
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-base shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-40 active:scale-95"
+                >
+                  <span>{questionResult?.canRetry ? 'XÁC NHẬN LÀM LẠI (2.5đ)' : 'XÁC NHẬN CÂU TRẢ LỜI (5đ)'}</span>
+                  <Sparkles className="w-5 h-5" />
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -798,9 +899,9 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                           : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
                       }`}
                     >
-                      <span>{item.text}</span>
+                      <MathText text={item.text} />
                       {matchedTarget && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white shrink-0 ml-2">
                           ➜ {matchedTarget}
                         </span>
                       )}
@@ -840,9 +941,9 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                           : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
                       }`}
                     >
-                      <span>{item.text}</span>
+                      <MathText text={item.text} />
                       {matchedFrom && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white shrink-0 ml-2">
                           Ghép với: {matchedFrom}
                         </span>
                       )}
@@ -877,11 +978,11 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                   key={stmt.id}
                   className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
                 >
-                  <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                    <strong className="text-blue-600 mr-2">Ý {idx + 1}:</strong>
-                    {stmt.text}
+                  <div className="text-sm font-medium text-slate-800 dark:text-slate-200 flex items-start gap-2">
+                    <strong className="text-blue-600 shrink-0">Ý {idx + 1}:</strong>
+                    <MathText text={stmt.text} />
                   </div>
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
                     <button
                       disabled={isLocked}
                       onClick={() => {
@@ -936,12 +1037,10 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
                     className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs font-black flex items-center justify-center">
+                      <span className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs font-black flex items-center justify-center shrink-0">
                         {idx + 1}
                       </span>
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                        {itemObj?.text}
-                      </span>
+                      <MathText text={itemObj?.text || ''} className="text-sm font-medium text-slate-800 dark:text-slate-200" />
                     </div>
 
                     {!isLocked && (
@@ -1017,13 +1116,14 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
 
                     {questionResult.hint && questionResult.canRetry && (
                       <p className="text-xs sm:text-sm font-medium text-amber-800 dark:text-amber-300">
-                        💡 <strong>Gợi ý:</strong> {questionResult.hint}
+                        💡 <strong>Gợi ý:</strong> <MathText text={questionResult.hint} />
                       </p>
                     )}
 
                     {questionResult.explanation && (
                       <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700/60 text-xs sm:text-sm text-slate-700 dark:text-slate-300 whitespace-pre-line leading-relaxed">
-                        <strong>Lời giải chi tiết:</strong> {questionResult.explanation}
+                        <strong className="text-slate-900 dark:text-white font-bold">Lời giải chi tiết:</strong>{' '}
+                        <MathText text={questionResult.explanation} />
                       </div>
                     )}
                   </div>
