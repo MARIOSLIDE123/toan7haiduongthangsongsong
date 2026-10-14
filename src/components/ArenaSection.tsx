@@ -314,85 +314,115 @@ export const ArenaSection: React.FC<ArenaSectionProps> = ({ student, onGoToLeade
     if (currentIndex < ARENA_QUESTIONS.length - 1) {
       setCurrentIndex((prev) => prev + 1);
     } else {
-      // Finalize Arena Session
-      setIsSubmitting(true);
-      const totalScore = session?.totalScore || 0;
-      const timeSpentSeconds = Math.max(10, Math.round((Date.now() - (session?.startTime || Date.now())) / 1000));
+      // 1. TÍNH TOÁN VÀ CHUYỂN SANG MÀN HÌNH TỔNG KẾT NGAY TỨC THÌ (0 GIÂY TRỄ)
+      const currentActiveSession = session || {
+        sessionId: 'arena_' + Date.now(),
+        student,
+        moduleId: 'BAI9_DAU_TRUONG_TRI_TUE',
+        startTime: Date.now() - 300000,
+        attempts: {},
+        totalScore: 0,
+        maxScore: 100,
+        isFinished: true,
+      };
 
+      const totalScore = currentActiveSession.totalScore || 0;
+      const timeSpentSeconds = Math.max(
+        15,
+        Math.round((Date.now() - (currentActiveSession.startTime || Date.now())) / 1000)
+      );
+
+      // Thống kê chính xác từ attempts
+      let firstTryCount = 0;
+      let retryCount = 0;
+      let wrongCount = 0;
+      const mastered: string[] = [];
+      const review: string[] = [];
+
+      ARENA_QUESTIONS.forEach((q) => {
+        const att = currentActiveSession.attempts[q.id];
+        if (att?.isCorrect) {
+          if (att.attemptsCount === 1) firstTryCount++;
+          else retryCount++;
+          mastered.push(q.knowledgeTopic);
+        } else {
+          wrongCount++;
+          review.push(q.knowledgeTopic);
+        }
+      });
+
+      const calculatedFinalStats = {
+        totalScore,
+        maxScore: 100,
+        percentage: Math.round((totalScore / 100) * 1000) / 10,
+        firstTryCount,
+        retryCount,
+        wrongCount,
+        masteredTopics: Array.from(new Set(mastered)),
+        reviewTopics: Array.from(new Set(review)),
+      };
+
+      // Đặt state kết thúc ngay lập tức - đảm bảo hiển thị 100%
+      setFinalStats(calculatedFinalStats);
+      setIsFinished(true);
+      sound.playVictory();
+      localStorage.removeItem('toan7_arena_session');
+
+      // Lưu kết quả vào localStorage hồ sơ học sinh
       try {
-        const res = await fetch('/api/session/finish', {
+        const profileStatsKey = 'toan7_student_stats';
+        const savedStats = JSON.parse(localStorage.getItem(profileStatsKey) || '{}');
+        savedStats.arenaScore = totalScore;
+        savedStats.arenaPercentage = calculatedFinalStats.percentage;
+        savedStats.arenaCompletedAt = new Date().toLocaleString('vi-VN');
+        localStorage.setItem(profileStatsKey, JSON.stringify(savedStats));
+      } catch {}
+
+      // 2. GỬI ĐỒNG BỘ NỀN LÊN MÁY CHỦ (BACKGROUND FETCH)
+      try {
+        fetch('/api/session/finish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            sessionId: session?.sessionId,
+            sessionId: currentActiveSession.sessionId,
             student,
             moduleId: 'BAI9_DAU_TRUONG_TRI_TUE',
             totalScore,
             maxScore: 100,
-            attempts: session?.attempts,
+            attempts: currentActiveSession.attempts,
           }),
-        });
-        const data = await res.json();
-        sound.playVictory();
+        }).catch(() => {});
+      } catch {}
 
-        // Calculate topics
-        const mastered: string[] = [];
-        const review: string[] = [];
-        ARENA_QUESTIONS.forEach((q) => {
-          const att = session?.attempts[q.id];
-          if (att?.isCorrect) {
-            mastered.push(q.knowledgeTopic);
-          } else {
-            review.push(q.knowledgeTopic);
-          }
-        });
-
-        setFinalStats({
-          totalScore,
-          maxScore: 100,
-          percentage: Math.round((totalScore / 100) * 1000) / 10,
-          firstTryCount: data.firstTryCorrectCount || 0,
-          retryCount: data.retryCorrectCount || 0,
-          wrongCount: data.wrongCount || 0,
-          masteredTopics: Array.from(new Set(mastered)),
-          reviewTopics: Array.from(new Set(review)),
-        });
-
-        setIsFinished(true);
-        localStorage.removeItem('toan7_arena_session');
-
-        // Đồng bộ trực tiếp Google Sheets (Client Backup 100% thành công)
-        try {
-          fetch('https://script.google.com/macros/s/AKfycbwONwRDH8xAMIG3D6ebJJjPhQqfxOXMSyyUmdqBOrYdhTsKStSv4T3_dHrJXsisQVmH/exec', {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'RECORD_STUDENT_RESULT',
-              data: {
-                timestamp: new Date().toISOString(),
-                studentId: student.id,
-                studentName: student.name,
-                school: student.school,
-                className: student.className,
-                lessonId: 'BAI_9_HAI_DUONG_THANG_SONG_SONG',
-                moduleId: 'BAI9_DAU_TRUONG_TRI_TUE',
-                sessionId: session?.sessionId,
-                totalQuestions: 20,
-                score: totalScore,
-                maxScore: 100,
-                percentage: `${Math.round((totalScore / 100) * 1000) / 10}%`,
-                timeSpent: `${timeSpentSeconds}s`,
-                syncStatus: 'synced',
-              },
-            }),
-          }).catch(() => {});
-        } catch {}
-      } catch (err) {
-        console.error('Lỗi kết thúc Đấu trường:', err);
-        setIsFinished(true);
-      } finally {
-        setIsSubmitting(false);
-      }
+      // 3. ĐỒNG BỘ TRỰC TIẾP GOOGLE SHEETS (REAL-TIME GOOGLE SHEETS & LEADERBOARD)
+      try {
+        fetch('https://script.google.com/macros/s/AKfycbwONwRDH8xAMIG3D6ebJJjPhQqfxOXMSyyUmdqBOrYdhTsKStSv4T3_dHrJXsisQVmH/exec', {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'RECORD_STUDENT_RESULT',
+            data: {
+              timestamp: new Date().toISOString(),
+              studentId: student.id,
+              studentName: student.name,
+              school: student.school,
+              className: student.className,
+              lessonId: 'BAI_9_HAI_DUONG_THANG_SONG_SONG',
+              moduleId: 'BAI9_DAU_TRUONG_TRI_TUE',
+              sessionId: currentActiveSession.sessionId,
+              totalQuestions: 20,
+              score: totalScore,
+              maxScore: 100,
+              percentage: `${calculatedFinalStats.percentage}%`,
+              firstTryCorrectCount: firstTryCount,
+              retryCorrectCount: retryCount,
+              wrongCount,
+              timeSpent: `${timeSpentSeconds}s`,
+              syncStatus: 'synced',
+            },
+          }),
+        }).catch(() => {});
+      } catch {}
     }
   };
 

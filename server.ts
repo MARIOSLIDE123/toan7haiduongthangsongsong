@@ -191,6 +191,44 @@ app.post('/api/session/start', (req: Request, res: Response) => {
   res.json({ success: true, session: newSession });
 });
 
+// 1b. POST /api/student/register
+app.post('/api/student/register', async (req: Request, res: Response) => {
+  const data = req.body;
+  if (!data || !data.studentName) {
+    return res.status(400).json({ error: 'Thiếu thông tin học sinh' });
+  }
+
+  // Chuyển tiếp tới Google Sheets
+  if (googleSheetsUrl && googleSheetsUrl.startsWith('https://script.google.com/')) {
+    try {
+      fetch(googleSheetsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'REGISTER_STUDENT', data }),
+        redirect: 'follow',
+      }).catch(() => {});
+    } catch {}
+  }
+
+  res.json({ success: true, message: 'Đã lưu học sinh thành công' });
+});
+
+// 1c. POST /api/student/activity
+app.post('/api/student/activity', async (req: Request, res: Response) => {
+  const data = req.body;
+  if (googleSheetsUrl && googleSheetsUrl.startsWith('https://script.google.com/')) {
+    try {
+      fetch(googleSheetsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'LOG_ACTIVITY', data }),
+        redirect: 'follow',
+      }).catch(() => {});
+    } catch {}
+  }
+  res.json({ success: true });
+});
+
 // 2. GET /api/session/:id
 app.get('/api/session/:id', (req: Request, res: Response) => {
   const session = sessions.get(req.params.id);

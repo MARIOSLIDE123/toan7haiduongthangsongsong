@@ -227,6 +227,16 @@ export const AdvancedSection: React.FC<AdvancedSectionProps> = ({
           localStorage.setItem('toan7_vdc_session', JSON.stringify(finishedSession));
         }
 
+        // Lưu kết quả vào localStorage hồ sơ học sinh
+        try {
+          const profileStatsKey = 'toan7_student_stats';
+          const savedStats = JSON.parse(localStorage.getItem(profileStatsKey) || '{}');
+          savedStats.vdcScore = totalScore;
+          savedStats.vdcPercentage = Math.round((totalScore / 100) * 1000) / 10;
+          savedStats.vdcCompletedAt = new Date().toLocaleString('vi-VN');
+          localStorage.setItem(profileStatsKey, JSON.stringify(savedStats));
+        } catch {}
+
         // Đồng bộ trực tiếp Google Sheets (Client Backup 100% thành công)
         try {
           fetch('https://script.google.com/macros/s/AKfycbwONwRDH8xAMIG3D6ebJJjPhQqfxOXMSyyUmdqBOrYdhTsKStSv4T3_dHrJXsisQVmH/exec', {

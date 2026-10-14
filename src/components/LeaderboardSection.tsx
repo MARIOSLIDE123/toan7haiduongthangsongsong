@@ -34,7 +34,7 @@ export const LeaderboardSection: React.FC = () => {
 
     // Direct Google Apps Script Web App Sync / Fallback
     try {
-      const gsModParam = mod === 'ALL' ? 'BAI9_DAU_TRUONG_TRI_TUE' : mod;
+      const gsModParam = mod || 'ALL';
       const gsRes = await fetch(`${GOOGLE_APPS_SCRIPT_URL}?moduleId=${gsModParam}`, {
         redirect: 'follow',
       });
@@ -43,13 +43,13 @@ export const LeaderboardSection: React.FC = () => {
         if (gsData.status === 'success' && Array.isArray(gsData.leaderboard)) {
           const directEntries: LeaderboardEntry[] = gsData.leaderboard.map((item: any) => ({
             id: item.id || `direct_${Math.random()}`,
-            moduleId: item.moduleId || gsModParam,
+            moduleId: item.moduleId || (mod === 'ALL' ? undefined : (mod as any)),
             name: item.name,
             school: item.school || 'THCS',
             className: item.className || '7A',
-            avatar: '👨‍🎓',
+            avatar: item.avatar || '👨‍🎓',
             score: Number(item.score) || 0,
-            maxScore: Number(item.maxScore) || 100,
+            maxScore: Number(item.maxScore) || (mod === 'ALL' ? 320 : 100),
             percentage: Number(item.percentage) || 0,
             timeSpentSeconds: Number(item.timeSpentSeconds) || 60,
             completedAt: String(item.completedAt || ''),
@@ -57,7 +57,7 @@ export const LeaderboardSection: React.FC = () => {
 
           directEntries.forEach((de) => {
             const exists = loadedEntries.some(
-              (le) => le.name === de.name && le.className === de.className && le.moduleId === de.moduleId
+              (le) => le.name === de.name && le.className === de.className && (mod === 'ALL' || le.moduleId === de.moduleId)
             );
             if (!exists) {
               loadedEntries.push(de);

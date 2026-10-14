@@ -178,6 +178,16 @@ export const PracticeSection: React.FC<PracticeSectionProps> = ({
           sheetSyncStatus: data.sheetSyncStatus || 'synced',
         });
 
+        // Lưu kết quả vào localStorage hồ sơ học sinh
+        try {
+          const profileStatsKey = 'toan7_student_stats';
+          const savedStats = JSON.parse(localStorage.getItem(profileStatsKey) || '{}');
+          savedStats.sgkScore = totalScore;
+          savedStats.sgkPercentage = Math.round((totalScore / maxScore) * 1000) / 10;
+          savedStats.sgkCompletedAt = new Date().toLocaleString('vi-VN');
+          localStorage.setItem(profileStatsKey, JSON.stringify(savedStats));
+        } catch {}
+
         // Đồng bộ trực tiếp Google Sheets (Client Backup 100% thành công)
         try {
           fetch('https://script.google.com/macros/s/AKfycbwONwRDH8xAMIG3D6ebJJjPhQqfxOXMSyyUmdqBOrYdhTsKStSv4T3_dHrJXsisQVmH/exec', {

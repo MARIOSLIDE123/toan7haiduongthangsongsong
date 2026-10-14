@@ -15,6 +15,7 @@ import { LeaderboardSection } from './components/LeaderboardSection.tsx';
 import { StudentProfileModal } from './components/StudentProfileModal.tsx';
 import { StudentWelcomeGate } from './components/StudentWelcomeGate.tsx';
 import { sound } from './utils/audio.ts';
+import { registerStudentOnline, logStudentActivityOnline } from './utils/googleSheetsSync.ts';
 import {
   BookOpen,
   CheckSquare,
@@ -37,6 +38,28 @@ export default function App() {
   >('theory');
   const [isMuted, setIsMuted] = useState<boolean>(sound.getMuted());
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  // Active time tracking (cộng dồn từng giây)
+  const [activeSeconds, setActiveSeconds] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('toan7_total_active_seconds');
+      return saved ? parseInt(saved, 10) : 0;
+    }
+    return 0;
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveSeconds((prev) => {
+        const next = prev + 1;
+        if (next % 10 === 0) {
+          localStorage.setItem('toan7_total_active_seconds', String(next));
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Mandatory registration gate state
   const [hasRegistered, setHasRegistered] = useState<boolean>(() => {
@@ -97,6 +120,10 @@ export default function App() {
     localStorage.setItem('toan7_profile_registered', 'true');
     setHasRegistered(true);
     initSession(newProfile);
+
+    // Ghi nhận thông tin học sinh và nhật ký thời gian thực ngay vào Google Sheets
+    registerStudentOnline(newProfile);
+    logStudentActivityOnline(newProfile, 'Đăng ký thông tin và bắt đầu học tập', `Lớp ${newProfile.className} - ${newProfile.school}`);
   };
 
   const handleSaveProfile = (newProfile: StudentProfile) => {
@@ -105,6 +132,7 @@ export default function App() {
     localStorage.setItem('toan7_profile_registered', 'true');
     setIsProfileModalOpen(false);
     initSession(newProfile);
+    registerStudentOnline(newProfile);
   };
 
   const handleToggleSound = () => {
@@ -194,6 +222,9 @@ export default function App() {
                   onClick={() => {
                     sound.playClick();
                     setActiveTab(item.id);
+                    if (student.name) {
+                      logStudentActivityOnline(student, `Xem phân hệ ${item.label}`, '', item.id, activeSeconds);
+                    }
                   }}
                   className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all cursor-pointer ${
                     isActive
@@ -335,8 +366,14 @@ export default function App() {
       {/* Modals */}
       <StudentProfileModal
         isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
         onSave={handleSaveProfile}
         initialProfile={student}
+        totalActiveSeconds={activeSeconds}
+        onGoToLeaderboard={() => {
+          setIsProfileModalOpen(false);
+          setActiveTab('leaderboard');
+        }}
       />
     </div>
   );
