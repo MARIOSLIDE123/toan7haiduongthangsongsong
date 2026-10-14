@@ -1,0 +1,6 @@
+{
+  "name": "Toán 7 Bài 9: Hai đường thẳng song song và dấu hiệu nhận biết",
+  "description": "Ứng dụng học tập, luyện tập hình học Toán 7 Bài 9 với hình minh họa SVG chuẩn xác, chấm điểm tự động 2 vòng, âm thanh tương tác và tích hợp Google Sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
